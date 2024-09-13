@@ -1,0 +1,82 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: hello-world
+spec:
+  serviceUnhealthySecondThreshold: 900
+  deploymentUnhealthySecondThreshold: 300
+  serveConfigV2: |
+    applications:
+      - name: hello_app
+        import_path: hello.app
+        route_prefix: /
+        runtime_env:
+          working_dir: "file:///data/model-serve/modelserving-0.0.2-alpha.zip"
+        deployments:
+          - name: HelloWorld
+            num_replicas: 2
+            max_replicas_per_node: 1
+            ray_actor_options:
+              num_cpus: 0.1
+  rayClusterConfig:
+    rayVersion: 'latest'
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+      template:
+        spec:
+          volumes:
+            - name: task-pv-storage
+              persistentVolumeClaim:
+                claimName: task-pv-claim
+          containers:
+            - name: ray-head
+              image: rayproject/ray:latest
+              resources:
+                limits:
+                  cpu: 2
+                  memory: 2Gi
+                requests:
+                  cpu: 2
+                  memory: 2Gi
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265 # Ray dashboard
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+                - containerPort: 8000
+                  name: serve
+              volumeMounts:
+                - mountPath: /data/model-serve
+                  name: task-pv-storage
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 5
+        groupName: small-group
+        rayStartParams: {}
+        template:
+          spec:
+            volumes:
+              - name: task-pv-storage
+                persistentVolumeClaim:
+                  claimName: task-pv-claim
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:latest
+                lifecycle:
+                  preStop:
+                    exec:
+                      command: ["/bin/sh","-c","ray stop"]
+                resources:
+                  limits:
+                    cpu: "1"
+                    memory: "2Gi"
+                  requests:
+                    cpu: "500m"
+                    memory: "2Gi"
+                volumeMounts:
+                - mountPath: /data/model-serve
+                  name: task-pv-storage
